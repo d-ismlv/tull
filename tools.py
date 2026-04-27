@@ -7,6 +7,7 @@ and be added to run_all(). Failures are isolated — the pipeline continues.
 import asyncio
 import json
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,15 +46,30 @@ async def run_all(apk: Path, workdir: Path, mobsf_url: str, mobsf_key: str) -> l
 
 # ── individual runners ────────────────────────────────────────────────────────
 
+def _apkleaks_bin() -> str:
+    # Prefer the binary in the same venv as the running Python.
+    # Falls back to PATH if not found (e.g. system install).
+    candidate = Path(sys.executable).parent / "apkleaks"
+    return str(candidate) if candidate.exists() else "apkleaks"
+
+
 async def _apkleaks(apk: Path, workdir: Path) -> ToolResult:
     out = workdir / "apkleaks.json"
     t0 = time.monotonic()
+    proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
-            "apkleaks", "-f", str(apk), "-o", str(out),
+            _apkleaks_bin(), "-f", str(apk), "-o", str(out),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=600)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            return ToolResult(name="apkleaks", ok=False, error="timed out after 600s",
+                              elapsed=time.monotonic() - t0)
+
         findings: dict = {}
         if out.exists():
             try:
@@ -68,6 +84,11 @@ async def _apkleaks(apk: Path, workdir: Path) -> ToolResult:
                   "categories": category_count, "findings_total": finding_count},
         )
     except Exception as exc:
+        if proc:
+            try:
+                proc.kill()
+            except Exception:
+                pass
         return ToolResult(name="apkleaks", ok=False, error=str(exc), elapsed=time.monotonic() - t0)
 
 
@@ -123,11 +144,17 @@ async def _mobsf(apk: Path, url: str, key: str) -> ToolResult:
             stages.append(f"report {time.monotonic()-t2:.0f}s")
 
             report = report_resp.json()
+            # Try known field names across MobSF versions
+            score = (report.get("security_score")
+                     or report.get("appsec_score")
+                     or (report.get("appsec") or {}).get("security_score")
+                     or "?")
+            cvss = report.get("average_cvss")  # None is valid (no CVEs found)
             return ToolResult(
                 name="mobsf", ok=True, elapsed=time.monotonic() - t0,
                 data={"report": report, "hash": file_hash, "stages": stages,
-                      "score": report.get("security_score", "?"),
-                      "cvss": report.get("average_cvss", "?")},
+                      "score": score, "cvss": cvss,
+                      "report_keys": list(report.keys())[:20]},
             )
     except Exception as exc:
         return ToolResult(name="mobsf", ok=False, error=str(exc),

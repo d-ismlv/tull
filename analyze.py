@@ -153,8 +153,11 @@ def _print_tool_result(r):
     elif r.name == "mobsf":
         stages = "  ·  ".join(r.data.get("stages", []))
         score = r.data.get("score", "?")
-        cvss = r.data.get("cvss", "?")
+        cvss = r.data.get("cvss", "N/A")
         print(f"       ↳ mobsf: ok{t}  score {score}/100  cvss {cvss}  [{stages}]")
+        if score == "?":
+            keys = r.data.get("report_keys", [])
+            print(f"         (score field not found — report keys: {keys})")
 
     else:
         print(f"       ↳ {r.name}: ok{t}")
