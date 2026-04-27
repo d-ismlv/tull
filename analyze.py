@@ -12,6 +12,9 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()  # reads .env from cwd or any parent directory
+
 
 _FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
