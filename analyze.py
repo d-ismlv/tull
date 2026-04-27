@@ -21,8 +21,8 @@ _FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _BANNER = """
              
  _       _ _ 
-| |_ _ _| | |
-|  _| | | | |
+| |_ _ _| | | Android APK static analysis pipeline
+|  _| | | | | I open boxes and look inside
 |_| |___|_|_|
              
 """
@@ -43,7 +43,7 @@ async def spinning(label: str, action: list[str] | None = None):
                 cols = os.get_terminal_size().columns - 1
             except OSError:
                 cols = 119
-            sys.stdout.write(f"\r{line[:cols]}")
+            sys.stdout.write(f"\r{line[:cols]}\033[K")
             sys.stdout.flush()
             await asyncio.sleep(0.1)
             i += 1
@@ -61,7 +61,7 @@ async def spinning(label: str, action: list[str] | None = None):
 def _args():
     p = argparse.ArgumentParser(description="APK Security Analyzer")
     p.add_argument("apk", help="Path to APK file")
-    p.add_argument("-o", "--output", default=".", help="Report output directory (default: .)")
+    p.add_argument("-o", "--output", default="output", help="Report output directory (default: output/)")
     p.add_argument("--mobsf-url", default=os.getenv("MOBSF_URL", ""))
     p.add_argument("--mobsf-key", default=os.getenv("MOBSF_API_KEY", ""))
     p.add_argument(
@@ -136,16 +136,19 @@ async def main():
         from analyst import investigate
         action: list[str] = [""]
         async with spinning(f"[3/4] investigating  ({args.model})", action):
-            analysis_md = await asyncio.to_thread(
+            analysis_md, token_stats = await asyncio.to_thread(
                 investigate, ctx, workdir, args.model,
                 lambda msg: action.__setitem__(0, msg),
             )
-        _log("3/4", "analysis complete")
+        _log("3/4", (
+            f"analysis complete  ·  "
+            f"{token_stats['input']:,} in / {token_stats['output']:,} out tokens  "
+            f"({args.model})"
+        ))
 
         # Save raw analysis before rendering (crash recovery)
         analysis_path = output_dir / f"{stem}_analysis.md"
         analysis_path.write_text(analysis_md, encoding="utf-8")
-        _log("3/4", f"analysis saved → {analysis_path.name}")
 
         # ── 4. Render final report ────────────────────────────────────────
         from report import render
@@ -154,11 +157,7 @@ async def main():
         report_path = output_dir / f"{stem}_security_report.md"
         report_path.write_text(report, encoding="utf-8")
 
-    print(f"\n[+] {report_path}")
-    for line in report.splitlines()[5:15]:
-        if "Risk Level" in line:
-            print(f"    {line.strip()}")
-            break
+    _print_saved_summary(output_dir, stem, token_stats, args.model)
 
 
 def _log(step: str, msg: str):
@@ -209,6 +208,18 @@ def _save_raw_outputs(tool_results, output_dir: Path, stem: str):
             p = output_dir / f"{stem}_mobsf_report.json"
             p.write_text(json.dumps(r.data["report"], indent=2))
             _log("1/4", f"saved → {p.name}")
+
+
+def _print_saved_summary(output_dir: Path, stem: str, token_stats: dict, model: str):
+    saved = sorted(f for f in output_dir.glob(f"{stem}*") if f.is_file())
+    print(f"\n[+] {len(saved)} file{'s' if len(saved) != 1 else ''} saved to {output_dir}/")
+    for f in saved:
+        size = f.stat().st_size
+        size_str = f"{size // 1024} KB" if size >= 1024 else f"{size} B"
+        print(f"       {f.name:<50}  {size_str:>8}")
+    total_in = token_stats.get("input", 0)
+    total_out = token_stats.get("output", 0)
+    print(f"\n    tokens  {total_in:,} in · {total_out:,} out  ({model})\n")
 
 
 if __name__ == "__main__":

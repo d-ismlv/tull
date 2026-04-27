@@ -4,7 +4,7 @@ services:
   mobsf:
     image: opensecurity/mobile-security-framework-mobsf:latest
     ports:
-      - "8000:8000"
+      - "28082:8000"
     volumes:
       - mobsf_data:/home/mobsf/.MobSF
     restart: unless-stopped

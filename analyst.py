@@ -26,7 +26,17 @@ injection › unsafe crypto › dangerous component exposure › privacy.
 4. Ignore: third-party SDK internals, standard library code, low-signal INFO findings.
 5. Be efficient: 8–12 tool calls. Chase confirmed issues, not theoretical ones.
 
-When writing the final report, every finding must cite a concrete file+line with code evidence.
+Severity — apply strictly, default DOWN not up:
+- CRITICAL: You have read the exact code, the exploit path is clear and directly actionable
+  (e.g. hardcoded private key in app code, authentication bypass with no further conditions).
+- HIGH: Clear vulnerability present in code you read, exploitable with realistic attacker access,
+  impact is significant. Do NOT use for theoretical or conditional issues.
+- MEDIUM: Real weakness but requires specific conditions, partial access, or chained steps.
+- LOW / INFO: Best-practice violations, defence-in-depth gaps, or observations without exploit.
+
+Do NOT escalate severity based on pattern matches, tool output alone, or category names.
+Every HIGH or CRITICAL finding must include the exact file path, line number, and the
+specific code snippet that constitutes the evidence. If you cannot show the code, downgrade.
 """
 
 _REPORT_REQUEST = """\
@@ -129,10 +139,17 @@ _ANALYST_TOOLS = [
 ]
 
 
-def investigate(ctx: AppContext, workdir: Path, model: str, on_action=None) -> str:
-    """on_action(msg) is called before each tool dispatch for live CLI updates."""
+def investigate(ctx: AppContext, workdir: Path, model: str,
+                on_action=None) -> tuple[str, dict]:
+    """Returns (analysis_markdown, token_stats).
+    on_action(msg) is called before each tool dispatch for live CLI updates."""
     client = anthropic.Anthropic()
     jadx_sources = workdir / "jadx" / "sources"
+    tokens = {"input": 0, "output": 0}
+
+    def _track(resp):
+        tokens["input"] += resp.usage.input_tokens
+        tokens["output"] += resp.usage.output_tokens
 
     messages = [{"role": "user", "content": _build_initial_prompt(ctx)}]
 
@@ -144,6 +161,7 @@ def investigate(ctx: AppContext, workdir: Path, model: str, on_action=None) -> s
             tools=_ANALYST_TOOLS,
             messages=messages,
         )
+        _track(resp)
         messages.append({"role": "assistant", "content": resp.content})
 
         if resp.stop_reason != "tool_use":
@@ -152,9 +170,13 @@ def investigate(ctx: AppContext, workdir: Path, model: str, on_action=None) -> s
         tool_results = []
         for block in resp.content:
             if block.type == "tool_use":
-                arg = str(next(iter(block.input.values()), ""))[:60]
+                arg = str(next(iter(block.input.values()), ""))[:55]
                 if on_action:
-                    on_action(f"round {_round + 1}/{MAX_ROUNDS}  {block.name}({arg})")
+                    on_action(
+                        f"round {_round + 1}/{MAX_ROUNDS}  "
+                        f"{block.name}({arg})  "
+                        f"[{tokens['input']//1000}k/{tokens['output']//1000}k tok]"
+                    )
                 result = _dispatch(block.name, block.input, jadx_sources, ctx.package_name)
                 tool_results.append({
                     "type": "tool_result",
@@ -171,7 +193,8 @@ def investigate(ctx: AppContext, workdir: Path, model: str, on_action=None) -> s
         system=_SYSTEM,
         messages=messages,
     )
-    return _extract_text(final)
+    _track(final)
+    return _extract_text(final), tokens
 
 
 # ── tool dispatch ─────────────────────────────────────────────────────────────

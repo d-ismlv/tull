@@ -2,8 +2,6 @@
 
 Containerised Android APK static analysis pipeline. Orchestrates APKLeaks, JADX, and MobSF into a single run, filters third-party library noise, then drives a Claude AI agent to triage findings and produce a structured markdown security report.
 
-No runtime dependencies beyond Docker and an Anthropic API key.
-
 ---
 
 ## Prerequisites
@@ -124,18 +122,6 @@ Each finding includes severity, category, file path with line number, code evide
 **MobSF** — static analysis via REST API. Upload → scan → report JSON. The summary passed to the analyst covers: security score, CVSS, dangerous permissions, manifest findings, HIGH/WARNING SAST results, discovered URLs, and tracker count. The full raw report is not forwarded. Gracefully skipped if `MOBSF_URL` is not set.
 
 **Analyst (Claude)** — runs an agentic investigation loop with three tools: `read_file` (read a specific decompiled Java file), `grep_source` (regex search across app sources), `list_files` (directory listing). Claude decides which files to examine based on APKLeaks findings, MobSF issues, and pre-scanned patterns, then writes the final report directly. Maximum 12 tool-call rounds before the report is requested. Prompt caching is active on the shared system prompt across rounds.
-
----
-
-## Extending
-
-Adding a new tool requires three small changes:
-
-1. Add `async def _mytool(apk, workdir) -> ToolResult` to `tools.py`
-2. Append `asyncio.create_task(_mytool(...))` in `run_all()`
-3. Surface relevant output in `_build_initial_prompt()` in `analyst.py`
-
-The analyst loop benefits from additional context automatically — no other changes needed.
 
 ---
 
