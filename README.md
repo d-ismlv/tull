@@ -206,7 +206,7 @@ options:
 
 ## Security
 
-This tool analyses untrusted input — APK files sourced from unknown parties. The decompiled code and strings extracted from those APKs are fed directly into an AI agent that has file-system tools (`read_file`, `grep_source`, `list_files`). A malicious APK could embed content designed to manipulate the agent's behaviour ([OWASP LLM01 — Prompt Injection](https://genai.owasp.org/llmrisk/llm01-prompt-injection/)).
+This tool analyses untrusted input — APK files sourced from unknown parties. The decompiled code and strings extracted from those APKs are fed directly into an AI agent that has file-system tools (`read_file`, `grep_source`, `list_files`). A malicious APK could embed content designed to manipulate the agent's behaviour a.k.a ([indirect prompt injection](https://genai.owasp.org/llmrisk/llm01-prompt-injection/)).
 
 **Running inside the provided Docker container is strongly recommended.** The container limits the blast radius: the agent's file tools are scoped to the temporary JADX working directory, and the container has no access to the host filesystem beyond the explicitly mounted `input/` and `output/` volumes.
 
