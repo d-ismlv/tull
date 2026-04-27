@@ -6,7 +6,6 @@ and be added to run_all(). Failures are isolated — the pipeline continues.
 
 import asyncio
 import json
-import os
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -15,10 +14,6 @@ from typing import Any
 
 import httpx
 
-# apkleaks runs from its own venv — set APKLEAKS_DIR to its directory.
-# e.g. APKLEAKS_DIR=~/Desktop/apkleaks
-# Falls back to the system `apkleaks` binary if unset.
-_APKLEAKS_DIR = os.getenv("APKLEAKS_DIR", "")
 
 
 @dataclass
@@ -50,19 +45,12 @@ async def run_all(apk: Path, workdir: Path, mobsf_url: str, mobsf_key: str) -> l
 
 # ── individual runners ────────────────────────────────────────────────────────
 
-def _apkleaks_cmd(out: Path, apk: Path) -> list[str]:
-    if _APKLEAKS_DIR:
-        d = Path(_APKLEAKS_DIR).expanduser().resolve()
-        return [str(d / ".venv/bin/python3"), str(d / "apkleaks.py"), "-f", str(apk), "-o", str(out)]
-    return ["apkleaks", "-f", str(apk), "-o", str(out)]
-
-
 async def _apkleaks(apk: Path, workdir: Path) -> ToolResult:
     out = workdir / "apkleaks.json"
     t0 = time.monotonic()
     try:
         proc = await asyncio.create_subprocess_exec(
-            *_apkleaks_cmd(out, apk),
+            "apkleaks", "-f", str(apk), "-o", str(out),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
