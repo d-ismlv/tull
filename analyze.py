@@ -113,12 +113,8 @@ async def main():
         for r in tool_results:
             _print_tool_result(r)
 
-        # Save apkleaks findings immediately
-        for r in tool_results:
-            if r.name == "apkleaks" and r.ok and r.data.get("findings"):
-                p = output_dir / f"{stem}_apkleaks.json"
-                p.write_text(json.dumps(r.data["findings"], indent=2))
-                _log("1/4", f"apkleaks saved → {p.name}")
+        # Save verbatim tool outputs immediately
+        _save_raw_outputs(tool_results, output_dir, stem)
 
         # ── 2. Filter noise ───────────────────────────────────────────────
         from filter import build_context, _PRIORITY
@@ -194,6 +190,25 @@ def _print_tool_result(r):
             print(f"              (score field not found — report keys: {keys})")
     else:
         print(f"       ↳ {r.name}: ok{t}")
+
+
+def _save_raw_outputs(tool_results, output_dir: Path, stem: str):
+    for r in tool_results:
+        if r.name == "apkleaks":
+            raw = r.data.get("raw", "")
+            if raw:
+                p = output_dir / f"{stem}_apkleaks.txt"
+                p.write_text(raw, encoding="utf-8")
+                _log("1/4", f"saved → {p.name}")
+            if r.ok and r.data.get("findings"):
+                p = output_dir / f"{stem}_apkleaks.json"
+                p.write_text(json.dumps(r.data["findings"], indent=2))
+                _log("1/4", f"saved → {p.name}")
+
+        elif r.name == "mobsf" and r.ok and r.data.get("report"):
+            p = output_dir / f"{stem}_mobsf_report.json"
+            p.write_text(json.dumps(r.data["report"], indent=2))
+            _log("1/4", f"saved → {p.name}")
 
 
 if __name__ == "__main__":

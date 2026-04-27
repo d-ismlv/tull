@@ -53,8 +53,22 @@ def _apkleaks_bin() -> str:
     return str(candidate) if candidate.exists() else "apkleaks"
 
 
+def _parse_apkleaks_text(text: str) -> dict[str, list[str]]:
+    """Parse apkleaks native text format: [Category] headers + '- item' lines."""
+    result: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("[") and s.endswith("]") and len(s) > 2:
+            current = s[1:-1]
+            result[current] = []
+        elif s.startswith("- ") and current is not None:
+            result[current].append(s[2:])
+    return {k: v for k, v in result.items() if v}
+
+
 async def _apkleaks(apk: Path, workdir: Path) -> ToolResult:
-    out = workdir / "apkleaks.json"
+    out = workdir / "apkleaks_raw.txt"
     t0 = time.monotonic()
     proc = None
     try:
@@ -70,17 +84,19 @@ async def _apkleaks(apk: Path, workdir: Path) -> ToolResult:
             return ToolResult(name="apkleaks", ok=False, error="timed out after 600s",
                               elapsed=time.monotonic() - t0)
 
-        findings: dict = {}
-        if out.exists():
-            try:
-                findings = json.loads(out.read_text())
-            except json.JSONDecodeError:
-                findings = {"raw": out.read_text()}
-        category_count = len(findings) if isinstance(findings, dict) else 0
+        raw = out.read_text(errors="replace") if out.exists() else stdout.decode(errors="replace")
+
+        # Try JSON first (future versions), fall back to native text parser
+        try:
+            findings = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            findings = _parse_apkleaks_text(raw)
+
+        category_count = len(findings)
         finding_count = sum(len(v) for v in findings.values() if isinstance(v, list))
         return ToolResult(
             name="apkleaks", ok=bool(findings), elapsed=time.monotonic() - t0,
-            data={"findings": findings, "stdout": stdout.decode(errors="replace"),
+            data={"findings": findings, "raw": raw,
                   "categories": category_count, "findings_total": finding_count},
         )
     except Exception as exc:
