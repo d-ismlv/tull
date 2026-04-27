@@ -31,6 +31,18 @@ _STDLIB_PREFIXES = (
     "com.facebook.react.", "org.jetbrains.",
 )
 
+# Priority tiers for snippet capping: lower number = more important = higher cap.
+_PRIORITY: dict[str, int] = {
+    "Hardcoded credential": 0, "API key": 0, "Private key material": 0,
+    "Secret/token": 1, "WebView JS enabled": 1, "WebView JS bridge": 1,
+    "WebView file access": 1, "SSL bypass": 1, "Command execution": 1,
+    "ECB cipher mode": 2, "World-accessible file": 2, "Sensitive SharedPrefs": 2,
+    "Sensitive data logged": 2, "JDBC connection string": 2,
+    "Content provider URI": 3, "External storage": 3,
+    "Crypto algorithm": 4, "URL": 4,
+}
+_CAP: dict[int, int] = {0: 999, 1: 15, 2: 10, 3: 5, 4: 20}
+
 # Patterns worth surfacing to the analyst before full agentic investigation.
 # No inline (?i) flags — all compiled with re.IGNORECASE below.
 _INTERESTING: list[tuple[str, str]] = [
@@ -175,8 +187,8 @@ def _scan_interesting(jadx_dir: Path, package_name: str) -> list[Snippet]:
     if not sources.exists():
         return []
 
-    snippets: list[Snippet] = []
     compiled = [(re.compile(pat, re.IGNORECASE | re.MULTILINE), label) for pat, label in _INTERESTING]
+    by_label: dict[str, list[Snippet]] = {}
 
     for java_file in sorted(sources.rglob("*.java")):
         if _is_stdlib(java_file, sources):
@@ -189,20 +201,19 @@ def _scan_interesting(jadx_dir: Path, package_name: str) -> list[Snippet]:
         for lineno, line in enumerate(lines, 1):
             for rx, label in compiled:
                 if rx.search(line):
-                    start = max(0, lineno - 2)
-                    ctx = "\n".join(lines[start: lineno + 1])
-                    snippets.append(Snippet(
+                    ctx = "\n".join(lines[max(0, lineno - 2): lineno + 1])
+                    by_label.setdefault(label, []).append(Snippet(
                         file=str(java_file.relative_to(sources)),
-                        line=lineno,
-                        label=label,
-                        context=ctx,
+                        line=lineno, label=label, context=ctx,
                     ))
-                    break  # one label per line is enough
+                    break
 
-        if len(snippets) > 300:
-            break
-
-    return snippets
+    # Apply per-category caps based on priority tier
+    result: list[Snippet] = []
+    for label, items in by_label.items():
+        cap = _CAP.get(_PRIORITY.get(label, 3), 10)
+        result.extend(items[:cap])
+    return result
 
 
 def _format_apkleaks(r: ToolResult) -> str:

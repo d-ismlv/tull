@@ -129,7 +129,8 @@ _ANALYST_TOOLS = [
 ]
 
 
-def investigate(ctx: AppContext, workdir: Path, model: str) -> str:
+def investigate(ctx: AppContext, workdir: Path, model: str, on_action=None) -> str:
+    """on_action(msg) is called before each tool dispatch for live CLI updates."""
     client = anthropic.Anthropic()
     jadx_sources = workdir / "jadx" / "sources"
 
@@ -151,6 +152,9 @@ def investigate(ctx: AppContext, workdir: Path, model: str) -> str:
         tool_results = []
         for block in resp.content:
             if block.type == "tool_use":
+                arg = str(next(iter(block.input.values()), ""))[:60]
+                if on_action:
+                    on_action(f"round {_round + 1}/{MAX_ROUNDS}  {block.name}({arg})")
                 result = _dispatch(block.name, block.input, jadx_sources, ctx.package_name)
                 tool_results.append({
                     "type": "tool_result",

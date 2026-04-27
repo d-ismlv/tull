@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""APK Security Analyzer — entry point.
-
-Usage:
-    python analyze.py app.apk -o ./reports
-    python analyze.py app.apk --model claude-opus-4-7
-
-Environment variables (or --flags):
-    ANTHROPIC_API_KEY   required
-    MOBSF_URL           optional, e.g. http://mobsf:8000
-    MOBSF_API_KEY       optional
-    CLAUDE_MODEL        optional, default claude-sonnet-4-6
-"""
+"""APK Security Analyzer — entry point."""
 
 import asyncio
 import argparse
@@ -18,6 +7,7 @@ import os
 import sys
 import time
 import tempfile
+from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -27,8 +17,8 @@ _FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
 @asynccontextmanager
-async def spinning(label: str):
-    """Single-line braille spinner. Clears itself on exit."""
+async def spinning(label: str, action: list[str] | None = None):
+    """Single-line braille spinner. action[0] is appended live when provided."""
     stop = asyncio.Event()
     t0 = time.monotonic()
 
@@ -36,7 +26,9 @@ async def spinning(label: str):
         i = 0
         while not stop.is_set():
             elapsed = int(time.monotonic() - t0)
-            sys.stdout.write(f"\r  {_FRAMES[i % len(_FRAMES)]}  {label}  {elapsed}s")
+            detail = f"  ←  {action[0]}" if action and action[0] else ""
+            line = f"  {_FRAMES[i % len(_FRAMES)]}  {label}{detail}  {elapsed}s"
+            sys.stdout.write(f"\r{line:<120}")
             sys.stdout.flush()
             await asyncio.sleep(0.1)
             i += 1
@@ -78,37 +70,47 @@ async def main():
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[{datetime.now():%H:%M:%S}] APK Security Analyzer")
-    print(f"      File  : {apk.name} ({apk.stat().st_size // 1_048_576} MB)")
-    print(f"      Model : {args.model}")
+    _log("init", f"{apk.name}  ({apk.stat().st_size // 1_048_576} MB)")
+    _log("init", f"model: {args.model}")
     if args.mobsf_url:
-        print(f"      MobSF : {args.mobsf_url}")
+        _log("init", f"mobsf: {args.mobsf_url}")
+    else:
+        _log("warn", "MOBSF_URL not set — MobSF will be skipped")
 
     with tempfile.TemporaryDirectory(prefix="apkanalyze_") as tmp:
         workdir = Path(tmp)
 
-        # ── 1. Run tools ──────────────────────────────────────────────────
+        # ── 1. Run all tools concurrently ─────────────────────────────────
         from tools import run_all
-        async with spinning("running tools  (apkleaks · jadx · mobsf)"):
+        tools_label = "apkleaks · jadx" + (" · mobsf" if args.mobsf_url else "")
+        async with spinning(f"[1/4] running tools  ({tools_label})"):
             tool_results = await run_all(apk, workdir, args.mobsf_url, args.mobsf_key)
 
-        _log("1/4", "tools done")
+        # Tools always complete before this line — gather() waits for all
+        _log("1/4", f"tools done  (all ran in parallel)")
         for r in tool_results:
-            status = "ok" if r.ok else f"FAILED  {r.error[:70]}"
-            print(f"       ↳ {r.name}: {status}")
+            _print_tool_result(r)
 
         # ── 2. Filter noise ───────────────────────────────────────────────
         from filter import build_context
         ctx = build_context(apk, workdir, tool_results)
         ctx.metadata["model"] = args.model
-        _log("2/4", f"filtered  ·  package: {ctx.package_name}  ·  {len(ctx.snippets)} interesting patterns")
+
+        counts = Counter(s.label for s in ctx.snippets)
+        _log("2/4", f"filtered  ·  package: {ctx.package_name}  ·  {len(ctx.snippets)} patterns")
+        for label, n in sorted(counts.items(), key=lambda x: -x[1])[:8]:
+            print(f"            {n:>4}  {label}")
+        if len(counts) > 8:
+            print(f"            … +{len(counts) - 8} more categories")
 
         # ── 3. AI investigation ───────────────────────────────────────────
-        # investigate() uses the sync Anthropic client; run in a thread so
-        # the event loop (and spinner) stay responsive during API calls.
         from analyst import investigate
-        async with spinning(f"investigating  ({args.model})"):
-            analysis_md = await asyncio.to_thread(investigate, ctx, workdir, args.model)
+        action: list[str] = [""]
+        async with spinning(f"[3/4] investigating  ({args.model})", action):
+            analysis_md = await asyncio.to_thread(
+                investigate, ctx, workdir, args.model,
+                lambda msg: action.__setitem__(0, msg),
+            )
         _log("3/4", "analysis complete")
 
         # ── 4. Render report ──────────────────────────────────────────────
@@ -127,6 +129,32 @@ async def main():
 
 def _log(step: str, msg: str):
     print(f"[{datetime.now():%H:%M:%S}] [{step}] {msg}")
+
+
+def _print_tool_result(r):
+    from tools import ToolResult
+    t = f"  ({r.elapsed:.0f}s)"
+    if not r.ok:
+        print(f"       ↳ {r.name}: FAILED{t}  {r.error[:80]}")
+        return
+
+    if r.name == "apkleaks":
+        n = r.data.get("findings_total", 0)
+        c = r.data.get("categories", 0)
+        print(f"       ↳ apkleaks: ok{t}  {n} findings across {c} categories")
+
+    elif r.name == "jadx":
+        n = r.data.get("java_files", 0)
+        print(f"       ↳ jadx: ok{t}  {n:,} Java files decompiled")
+
+    elif r.name == "mobsf":
+        stages = "  ·  ".join(r.data.get("stages", []))
+        score = r.data.get("score", "?")
+        cvss = r.data.get("cvss", "?")
+        print(f"       ↳ mobsf: ok{t}  score {score}/100  cvss {cvss}  [{stages}]")
+
+    else:
+        print(f"       ↳ {r.name}: ok{t}")
 
 
 if __name__ == "__main__":
