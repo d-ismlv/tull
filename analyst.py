@@ -145,19 +145,28 @@ def investigate(ctx: AppContext, workdir: Path, model: str,
     on_action(msg) is called before each tool dispatch for live CLI updates."""
     client = anthropic.Anthropic()
     jadx_sources = workdir / "jadx" / "sources"
-    tokens = {"input": 0, "output": 0}
+    tokens = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
 
     def _track(resp):
         tokens["input"] += resp.usage.input_tokens
         tokens["output"] += resp.usage.output_tokens
+        tokens["cache_read"] += getattr(resp.usage, "cache_read_input_tokens", 0) or 0
+        tokens["cache_write"] += getattr(resp.usage, "cache_creation_input_tokens", 0) or 0
 
-    messages = [{"role": "user", "content": _build_initial_prompt(ctx)}]
+    # Mark system prompt and initial context as cacheable.
+    # Rounds 2-12 pay ~10% of normal cost for this prefix.
+    _system_cached = [{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}]
+    messages = [{
+        "role": "user",
+        "content": [{"type": "text", "text": _build_initial_prompt(ctx),
+                     "cache_control": {"type": "ephemeral"}}],
+    }]
 
     for _round in range(MAX_ROUNDS):
         resp = client.messages.create(
             model=model,
             max_tokens=4096,
-            system=_SYSTEM,
+            system=_system_cached,
             tools=_ANALYST_TOOLS,
             messages=messages,
         )
@@ -172,10 +181,13 @@ def investigate(ctx: AppContext, workdir: Path, model: str,
             if block.type == "tool_use":
                 arg = str(next(iter(block.input.values()), ""))[:55]
                 if on_action:
+                    cached = tokens["cache_read"] // 1000
                     on_action(
                         f"round {_round + 1}/{MAX_ROUNDS}  "
                         f"{block.name}({arg})  "
-                        f"[{tokens['input']//1000}k/{tokens['output']//1000}k tok]"
+                        f"[{tokens['input']//1000}k in · {tokens['output']//1000}k out"
+                        + (f" · {cached}k cached" if cached else "")
+                        + "]"
                     )
                 result = _dispatch(block.name, block.input, jadx_sources, ctx.package_name)
                 tool_results.append({
@@ -190,7 +202,7 @@ def investigate(ctx: AppContext, workdir: Path, model: str,
     final = client.messages.create(
         model=model,
         max_tokens=8192,
-        system=_SYSTEM,
+        system=_system_cached,
         messages=messages,
     )
     _track(final)
@@ -226,7 +238,7 @@ def _read_file(sources: Path, rel_path: str) -> str:
             return f"[file not found: {rel_path}]"
     lines = safe.read_text(errors="replace").splitlines()
     numbered = "\n".join(f"{i+1:4d}  {l}" for i, l in enumerate(lines))
-    return numbered[:12000]  # cap at ~200 lines equivalent
+    return numbered[:6000]  # cap at ~100 lines; enough context for any single finding
 
 
 def _grep(sources: Path, pattern: str, max_results: int, package: str) -> str:
@@ -264,6 +276,23 @@ def _list_files(sources: Path, pkg_path: str) -> str:
 
 # ── prompt builders ───────────────────────────────────────────────────────────
 
+# Lines containing these strings are kept; everything else stripped from manifest.
+_MANIFEST_KEEP = (
+    "<manifest", "</manifest",
+    "<uses-permission", "<uses-feature",
+    "android:exported", "android:debuggable", "android:allowBackup",
+    "android:usesCleartextTraffic", "android:networkSecurityConfig",
+    "<intent-filter", "<action ", "<category ", "<data ",
+    "<application ",
+)
+
+
+def _filter_manifest(xml: str) -> str:
+    """Keep only security-relevant manifest lines (~800 chars vs 4 000 raw)."""
+    lines = [l for l in xml.splitlines() if any(k in l for k in _MANIFEST_KEEP)]
+    return "\n".join(lines)[:2000]
+
+
 def _build_initial_prompt(ctx: AppContext) -> str:
     snippets_text = ""
     if ctx.snippets:
@@ -286,27 +315,27 @@ SHA256: `{ctx.metadata.get('sha256', 'N/A')}`
 
 ---
 ## APKLeaks Findings
-{ctx.apkleaks_text}
+{ctx.apkleaks_text[:3000]}
 
 ---
 ## MobSF Analysis
 {ctx.mobsf_summary}
 
 ---
-## AndroidManifest.xml
+## AndroidManifest.xml (security-relevant attributes)
 ```xml
-{ctx.manifest_xml[:4000]}
+{_filter_manifest(ctx.manifest_xml)}
 ```
 
 ---
 ## App Package File Tree (filtered — stdlib excluded)
 ```
-{ctx.file_tree[:3000]}
+{ctx.file_tree[:2500]}
 ```
 
 ---
 ## Pre-scanned Interesting Patterns
-{snippets_text[:4000]}
+{snippets_text[:3500]}
 
 ---
 Begin your investigation. Use tools to read files and verify findings.

@@ -219,7 +219,13 @@ def _print_saved_summary(output_dir: Path, stem: str, token_stats: dict, model: 
         print(f"       {f.name:<50}  {size_str:>8}")
     total_in = token_stats.get("input", 0)
     total_out = token_stats.get("output", 0)
-    print(f"\n    tokens  {total_in:,} in · {total_out:,} out  ({model})\n")
+    cache_read = token_stats.get("cache_read", 0)
+    cache_write = token_stats.get("cache_write", 0)
+    tok_line = f"    tokens  {total_in:,} in · {total_out:,} out"
+    if cache_read or cache_write:
+        tok_line += f"  ·  {cache_read:,} cache read · {cache_write:,} cache write"
+    tok_line += f"  ({model})"
+    print(f"\n{tok_line}\n")
 
 
 if __name__ == "__main__":
