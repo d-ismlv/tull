@@ -4,6 +4,43 @@ Containerised Android APK static analysis pipeline. Orchestrates APKLeaks, JADX,
 
 ---
 
+## Architecture
+
+```mermaid
+flowchart LR
+    APK([APK file])
+
+    subgraph tools["Tools  (parallel)"]
+        AL[APKLeaks\nSecrets & keys]
+        JD[JADX\nDecompile → Java]
+        MF[MobSF\nSAST · permissions\nmanifest · trackers]
+    end
+
+    subgraph filter["Filter"]
+        F[Strip stdlib / third-party\nPriority-ranked snippets\nManifest · file tree]
+    end
+
+    subgraph analyst["AI Analyst  (Claude)"]
+        direction TB
+        AG[Agentic loop\nup to 12 rounds]
+        subgraph atools["Tools"]
+            RF[read_file]
+            GS[grep_source]
+            LF[list_files]
+        end
+        AG --> atools
+    end
+
+    RPT[/Markdown report/]
+
+    APK --> tools
+    tools --> filter
+    filter --> analyst
+    analyst --> RPT
+```
+
+---
+
 ## Prerequisites
 
 **Required**
@@ -11,7 +48,7 @@ Containerised Android APK static analysis pipeline. Orchestrates APKLeaks, JADX,
 | Requirement | Notes |
 |---|---|
 | Docker | Any recent version |
-| `ANTHROPIC_API_KEY` | Claude Sonnet 4.6 by default; Opus 4.7 available via `CLAUDE_MODEL` |
+| `ANTHROPIC_API_KEY` | Claude Sonnet 4.6 by default; Opus 4.7 available via `--model` |
 
 **Optional**
 
@@ -43,8 +80,10 @@ docker build -t tull .
 
 ```bash
 pip install -r requirements.txt
-# also requires: jadx on PATH, apkleaks on PATH
+# also requires: jadx on PATH
 ```
+
+APKLeaks is installed automatically via `requirements.txt`.
 
 ---
 
@@ -66,7 +105,10 @@ docker run --rm \
   tull /data/input/target.apk -o /data/output
 
 # Use Opus for deeper analysis
-docker run ... -e CLAUDE_MODEL=claude-opus-4-7 tull target.apk
+docker run ... tull target.apk --model claude-opus-4-7
+
+# Cap patterns fed to AI (useful for very large apps)
+python analyze.py target.apk --max-patterns 150
 
 # Python directly
 python analyze.py target.apk -o ./output
@@ -76,11 +118,26 @@ python analyze.py target.apk -o ./output
 
 ## Output
 
-A single markdown report is written to the output directory:
+All files are written to the output directory (default: `output/`):
 
 ```
 output/
-  target_security_report.md
+  target_security_report.md   ← final report
+  target_analysis.md          ← raw AI output (pre-render)
+  target_apkleaks.txt         ← verbatim APKLeaks output
+  target_apkleaks.json        ← APKLeaks findings as JSON
+  target_mobsf_report.json    ← full MobSF report JSON
+```
+
+A summary is printed at the end of every run:
+
+```
+[+] 5 files saved to output/
+       target_security_report.md                         18 KB
+       target_analysis.md                                12 KB
+       ...
+
+    tokens  42,310 in · 3,891 out  (claude-sonnet-4-6)
 ```
 
 Report structure:
@@ -109,19 +166,41 @@ Report structure:
 ## Tool Status
 ```
 
-Each finding includes severity, category, file path with line number, code evidence, impact, and recommendation.
+Each finding includes severity, category, file path with line number, code evidence, impact, and recommendation. HIGH and CRITICAL findings must be backed by exact code — the analyst is instructed to downgrade rather than speculate.
 
 ---
 
-## Notes
+## Options
 
-**APKLeaks** — scans the APK for leaked secrets, keys, and tokens using a rule-based pattern library. Output is formatted and passed verbatim to the analyst. Runs in parallel with JADX.
+```
+usage: analyze.py [-h] [-o OUTPUT] [--mobsf-url URL] [--mobsf-key KEY]
+                  [--model MODEL] [--max-patterns N]
+                  apk
 
-**JADX** — decompiles the APK to Java source. The filter stage strips all third-party and standard library packages (Android, AndroidX, Kotlin, OkHttp, Firebase, Retrofit, and ~20 other prefixes), leaving only app-package code. The analyst receives the filtered file tree and pre-scanned interesting patterns; it requests specific files via tool calls rather than receiving a full dump.
+positional arguments:
+  apk                   Path to APK file
 
-**MobSF** — static analysis via REST API. Upload → scan → report JSON. The summary passed to the analyst covers: security score, CVSS, dangerous permissions, manifest findings, HIGH/WARNING SAST results, discovered URLs, and tracker count. The full raw report is not forwarded. Gracefully skipped if `MOBSF_URL` is not set.
+options:
+  -o, --output DIR      Report output directory (default: output/)
+  --mobsf-url URL       MobSF base URL (env: MOBSF_URL)
+  --mobsf-key KEY       MobSF API key (env: MOBSF_API_KEY)
+  --model MODEL         claude-sonnet-4-6 | claude-opus-4-7
+  --max-patterns N      Cap patterns fed to AI, highest-priority first (0 = no limit)
+```
 
-**Analyst (Claude)** — runs an agentic investigation loop with three tools: `read_file` (read a specific decompiled Java file), `grep_source` (regex search across app sources), `list_files` (directory listing). Claude decides which files to examine based on APKLeaks findings, MobSF issues, and pre-scanned patterns, then writes the final report directly. Maximum 12 tool-call rounds before the report is requested. Prompt caching is active on the shared system prompt across rounds.
+---
+
+## How it works
+
+**APKLeaks** scans the APK for leaked secrets, keys, and tokens using a rule-based pattern library. Output is formatted and passed verbatim to the analyst. Runs in parallel with JADX.
+
+**JADX** decompiles the APK to Java source. The filter stage strips all third-party and standard library packages (Android, AndroidX, Kotlin, OkHttp, Firebase, Retrofit, and ~20 other prefixes), leaving only app-package code.
+
+**MobSF** provides static analysis via REST API: upload → scan → report JSON. The summary passed to the analyst covers security score, CVSS, dangerous permissions, manifest findings, HIGH/WARNING SAST results, discovered URLs, and tracker count. Gracefully skipped if `MOBSF_URL` is not set.
+
+**Filter** builds a token-efficient `AppContext`: priority-ranked code snippets (credentials uncapped, URLs capped at 20), filtered file tree, parsed AndroidManifest.xml. Use `--max-patterns` to limit total snippets on very large apps.
+
+**Analyst (Claude)** runs an agentic investigation loop with three tools: `read_file` (read a specific decompiled Java file), `grep_source` (regex search across app sources), `list_files` (directory listing). Claude decides which files to examine based on APKLeaks findings, MobSF issues, and pre-scanned patterns, then writes the final report. Maximum 12 tool-call rounds. Severity is applied strictly — CRITICAL and HIGH require exact file path, line number, and code snippet as evidence.
 
 ---
 
