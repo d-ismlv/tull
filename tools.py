@@ -87,13 +87,13 @@ async def _mobsf(apk: Path, url: str, key: str) -> ToolResult:
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
             # upload
-            async with await client.stream(
-                "POST", f"{url}/api/v1/upload",
+            upload_resp = await client.post(
+                f"{url}/api/v1/upload",
                 headers=headers,
                 files={"file": (apk.name, apk.open("rb"), "application/vnd.android.package-archive")},
-            ) as resp:
-                resp.raise_for_status()
-                upload = resp.json()
+            )
+            upload_resp.raise_for_status()
+            upload = upload_resp.json()
 
             file_hash = upload["hash"]
 

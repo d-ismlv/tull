@@ -31,26 +31,27 @@ _STDLIB_PREFIXES = (
     "com.facebook.react.", "org.jetbrains.",
 )
 
-# Patterns worth surfacing to the analyst before full agentic investigation
+# Patterns worth surfacing to the analyst before full agentic investigation.
+# No inline (?i) flags — all compiled with re.IGNORECASE below.
 _INTERESTING: list[tuple[str, str]] = [
     (r"https?://[^\s\"'<>]{10,}", "URL"),
     (r"jdbc:[^\s\"']+", "JDBC connection string"),
-    (r"(?i)(password|passwd|pwd)\s*[=:]\s*[\"'][^\"']{4,}", "Hardcoded credential"),
-    (r"(?i)(api[_-]?key|apikey|api[_-]?secret)\s*[=:]\s*[\"'][^\"']{8,}", "API key"),
-    (r"(?i)(secret|token|bearer)\s*[=:]\s*[\"'][^\"']{8,}", "Secret/token"),
+    (r"(password|passwd|pwd)\s*[=:]\s*[\"'][^\"']{4,}", "Hardcoded credential"),
+    (r"(api[_-]?key|apikey|api[_-]?secret)\s*[=:]\s*[\"'][^\"']{8,}", "API key"),
+    (r"(secret|token|bearer)\s*[=:]\s*[\"'][^\"']{8,}", "Secret/token"),
     (r"BEGIN (RSA |EC |DSA )?PRIVATE KEY", "Private key material"),
-    (r"(?i)setJavaScriptEnabled\s*\(\s*true", "WebView JS enabled"),
-    (r"(?i)addJavascriptInterface\s*\(", "WebView JS bridge"),
-    (r"(?i)setAllowFileAccess\s*\(\s*true", "WebView file access"),
-    (r"(?i)(Runtime\.getRuntime\(\)|ProcessBuilder|\.exec\s*\()", "Command execution"),
+    (r"setJavaScriptEnabled\s*\(\s*true", "WebView JS enabled"),
+    (r"addJavascriptInterface\s*\(", "WebView JS bridge"),
+    (r"setAllowFileAccess\s*\(\s*true", "WebView file access"),
+    (r"(Runtime\.getRuntime\(\)|ProcessBuilder|\.exec\s*\()", "Command execution"),
     (r"MODE_WORLD_(READABLE|WRITABLE)", "World-accessible file"),
     (r'Cipher\.getInstance\s*\(\s*"[^"]*ECB', "ECB cipher mode"),
-    (r"(?i)(checkServerTrusted|ALLOW_ALL_HOSTNAME|TrustAll)", "SSL bypass"),
-    (r"(?i)(getSharedPreferences|openFileOutput).{0,80}(?i)(password|secret|token|key)", "Sensitive SharedPrefs"),
-    (r"(?i)Log\.[dviwef]\s*\([^)]{0,60}(?i)(password|token|key|secret)", "Sensitive data logged"),
-    (r"(?i)getExternalStorage|EXTERNAL_STORAGE", "External storage"),
+    (r"(checkServerTrusted|ALLOW_ALL_HOSTNAME|TrustAll)", "SSL bypass"),
+    (r"(getSharedPreferences|openFileOutput).{0,80}(password|secret|token|key)", "Sensitive SharedPrefs"),
+    (r"Log\.[dviwef]\s*\([^)]{0,60}(password|token|key|secret)", "Sensitive data logged"),
+    (r"getExternalStorage|EXTERNAL_STORAGE", "External storage"),
     (r"content://[a-zA-Z0-9._/]+", "Content provider URI"),
-    (r"(?i)(AES|DES|RSA|MD5|SHA-?1)\b", "Crypto algorithm"),
+    (r"(AES|DES|RSA|MD5|SHA-?1)\b", "Crypto algorithm"),
 ]
 
 
@@ -175,7 +176,7 @@ def _scan_interesting(jadx_dir: Path, package_name: str) -> list[Snippet]:
         return []
 
     snippets: list[Snippet] = []
-    compiled = [(re.compile(pat, re.MULTILINE), label) for pat, label in _INTERESTING]
+    compiled = [(re.compile(pat, re.IGNORECASE | re.MULTILINE), label) for pat, label in _INTERESTING]
 
     for java_file in sorted(sources.rglob("*.java")):
         if _is_stdlib(java_file, sources):
