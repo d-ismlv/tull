@@ -127,9 +127,9 @@ async def _mobsf(apk: Path, url: str, key: str) -> ToolResult:
             stages.append(f"scan {time.monotonic()-t1:.0f}s")
 
             t2 = time.monotonic()
-            report_resp = await client.get(
+            report_resp = await client.post(
                 f"{url}/api/v1/report_json", headers=headers,
-                params={"hash": file_hash},
+                data={"hash": file_hash},
             )
             report_resp.raise_for_status()
             stages.append(f"report {time.monotonic()-t2:.0f}s")
