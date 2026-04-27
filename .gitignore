@@ -1,0 +1,44 @@
+# Secrets & config
+.env
+*.env.*
+!.env.example
+
+# Claude Code internals
+.claude/
+
+# APK input/output (potentially sensitive)
+input/
+output/
+*.apk
+*.aab
+*.ipa
+
+# Analysis artifacts
+*.json
+!package.json
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+.eggs/
+*.egg-info/
+dist/
+build/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
