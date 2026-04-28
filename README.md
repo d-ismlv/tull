@@ -4,8 +4,6 @@ APK security tools produce useful but noisy output — tracing pattern matches t
 
 A pipeline that connects three specialist tools through an AI synthesis layer: findings go in, a structured report with code evidence comes out.
 
----
-
 ![tull — APK security analysis pipeline](assets/tull.png)
 
 ---
