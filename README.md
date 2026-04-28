@@ -205,11 +205,11 @@ options:
 
 ## How it works
 
-**APKLeaks** scans the APK for leaked secrets, keys, and tokens using a rule-based pattern library. Output is formatted and passed verbatim to the analyst. Runs in parallel with JADX.
+**[APKLeaks](https://github.com/dwisiswant0/apkleaks)** scans the APK for leaked secrets, keys, and tokens using a rule-based pattern library. Output is formatted and passed verbatim to the analyst. Runs in parallel with JADX.
 
-**JADX** decompiles the APK to Java source. The filter stage strips all third-party and standard library packages (Android, AndroidX, Kotlin, OkHttp, Firebase, Retrofit, and ~20 other prefixes), leaving only app-package code.
+**[JADX](https://github.com/skylot/jadx)** decompiles the APK to Java source. The filter stage strips all third-party and standard library packages (Android, AndroidX, Kotlin, OkHttp, Firebase, Retrofit, and ~20 other prefixes), leaving only app-package code.
 
-**MobSF** provides static analysis via REST API: upload → scan → report JSON. The summary passed to the analyst covers security score, CVSS, dangerous permissions, manifest findings, HIGH/WARNING SAST results, discovered URLs, and tracker count. A running MobSF instance with `MOBSF_URL` and `MOBSF_API_KEY` set is required.
+**[MobSF](https://github.com/MobSF/Mobile-Security-Framework-MobSF)** provides static analysis via REST API: upload → scan → report JSON. The summary passed to the analyst covers security score, CVSS, dangerous permissions, manifest findings, HIGH/WARNING SAST results, discovered URLs, and tracker count. A running MobSF instance with `MOBSF_URL` and `MOBSF_API_KEY` set is required.
 
 **Filter** builds a token-efficient `AppContext`: priority-ranked code snippets (credentials uncapped, URLs capped at 20), filtered file tree, parsed AndroidManifest.xml. Use `--max-patterns` to limit total snippets on very large apps.
 
