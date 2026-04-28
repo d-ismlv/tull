@@ -30,10 +30,5 @@ COPY analyze.py tools.py filter.py analyst.py report.py ./
 # Volumes: /data/input (APK), /data/output (reports)
 RUN mkdir -p /data/input /data/output
 
-# Drop privileges
-RUN useradd -r -u 1000 -s /sbin/nologin analyzer \
-    && chown -R analyzer:analyzer /data /app
-USER analyzer
-
 ENTRYPOINT ["python", "analyze.py"]
 CMD ["--help"]

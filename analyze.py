@@ -174,7 +174,7 @@ def _log(step: str, msg: str):
 def _print_tool_result(r):
     t = f"  ({r.elapsed:3.0f}s)"
     if not r.ok:
-        print(f"       ↳ {r.name}: FAILED{t}  {r.error[:80]}")
+        print(f"       ↳ {r.name}: FAILED{t}  {r.error[:200]}")
         return
 
     if r.name == "apkleaks":

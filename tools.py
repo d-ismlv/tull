@@ -77,7 +77,7 @@ async def _apkleaks(apk: Path, workdir: Path) -> ToolResult:
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         try:
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=600)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
         except asyncio.TimeoutError:
             proc.kill()
             await proc.communicate()
@@ -85,6 +85,7 @@ async def _apkleaks(apk: Path, workdir: Path) -> ToolResult:
                               elapsed=time.monotonic() - t0)
 
         raw = out.read_text(errors="replace") if out.exists() else stdout.decode(errors="replace")
+        stderr_tail = stderr.decode(errors="replace")[-500:] if stderr else ""
 
         # Try JSON first (future versions), fall back to native text parser
         try:
@@ -94,8 +95,10 @@ async def _apkleaks(apk: Path, workdir: Path) -> ToolResult:
 
         category_count = len(findings)
         finding_count = sum(len(v) for v in findings.values() if isinstance(v, list))
+        error = stderr_tail if not findings else ""
         return ToolResult(
             name="apkleaks", ok=bool(findings), elapsed=time.monotonic() - t0,
+            error=error,
             data={"findings": findings, "raw": raw,
                   "categories": category_count, "findings_total": finding_count},
         )
@@ -116,11 +119,13 @@ async def _jadx(apk: Path, output_dir: Path) -> ToolResult:
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+        stderr_text = stderr.decode(errors="replace")
         java_count = sum(1 for _ in output_dir.rglob("*.java"))
         return ToolResult(
             name="jadx", ok=java_count > 0, elapsed=time.monotonic() - t0,
+            error=stderr_text[-500:] if java_count == 0 else "",
             data={"output_dir": str(output_dir), "java_files": java_count,
-                  "stderr_tail": stderr.decode(errors="replace")[-1000:]},
+                  "stderr_tail": stderr_text[-1000:]},
         )
     except Exception as exc:
         return ToolResult(name="jadx", ok=False, error=str(exc), elapsed=time.monotonic() - t0)
