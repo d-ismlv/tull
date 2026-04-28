@@ -7,6 +7,7 @@ and be added to run_all(). Failures are isolated — the pipeline continues.
 import asyncio
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -25,6 +26,18 @@ class ToolResult:
     data: dict[str, Any] = field(default_factory=dict)
     error: str = ""
     elapsed: float = 0.0
+
+
+def _killpg(proc) -> None:
+    """Kill the entire process group so child processes (e.g. jadx spawned by apkleaks)
+    don't keep stdout pipes open and cause communicate() to hang indefinitely."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
 
 async def run_all(apk: Path, workdir: Path, mobsf_url: str, mobsf_key: str) -> list[ToolResult]:
@@ -77,13 +90,13 @@ async def _apkleaks(apk: Path, workdir: Path) -> ToolResult:
             _apkleaks_bin(), "-f", str(apk), "-o", str(out),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             env={**os.environ, "HOME": "/tmp"},
+            start_new_session=True,
         )
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=900)
         except asyncio.TimeoutError:
-            proc.kill()
-            await proc.communicate()
-            return ToolResult(name="apkleaks", ok=False, error="timed out after 600s",
+            _killpg(proc)
+            return ToolResult(name="apkleaks", ok=False, error="timed out after 900s",
                               elapsed=time.monotonic() - t0)
 
         raw = out.read_text(errors="replace") if out.exists() else stdout.decode(errors="replace")
@@ -111,10 +124,7 @@ async def _apkleaks(apk: Path, workdir: Path) -> ToolResult:
         )
     except Exception as exc:
         if proc:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+            _killpg(proc)
         return ToolResult(name="apkleaks", ok=False, error=str(exc), elapsed=time.monotonic() - t0)
 
 
@@ -125,8 +135,9 @@ async def _jadx(apk: Path, output_dir: Path) -> ToolResult:
             "jadx", "-d", str(output_dir), "--show-bad-code", str(apk),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             env={**os.environ, "HOME": "/tmp"},
+            start_new_session=True,
         )
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=300)
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=600)
         stdout_text = stdout_bytes.decode(errors="replace")
         stderr_text = stderr_bytes.decode(errors="replace")
         java_count = sum(1 for _ in output_dir.rglob("*.java"))
@@ -141,6 +152,10 @@ async def _jadx(apk: Path, output_dir: Path) -> ToolResult:
             data={"output_dir": str(output_dir), "java_files": java_count,
                   "stderr_tail": stderr_text[-1000:]},
         )
+    except asyncio.TimeoutError:
+        _killpg(proc)
+        return ToolResult(name="jadx", ok=False, error="timed out after 600s",
+                          elapsed=time.monotonic() - t0)
     except Exception as exc:
         return ToolResult(name="jadx", ok=False, error=str(exc), elapsed=time.monotonic() - t0)
 
