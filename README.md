@@ -1,6 +1,8 @@
 # tull
 
-Containerised Android APK static analysis pipeline. Orchestrates APKLeaks, JADX, and MobSF into a single run, filters third-party library noise, then drives a Claude AI agent to triage findings and produce a structured markdown security report.
+APK security tools produce useful but noisy output — tracing pattern matches to actually exploitable code still requires reading decompiled source. Tull runs APKLeaks, JADX, and MobSF in parallel, then drives a Claude agent to read decompiled Java, confirm or dismiss findings, and write a severity-ranked report. It does not replace a skilled mobile security engineer, but it closes the gap between raw scanner output and a first actionable assessment.
+
+A pipeline that connects three specialist tools through an AI synthesis layer: findings go in, a structured report with code evidence comes out.
 
 ---
 
@@ -43,19 +45,12 @@ flowchart LR
 
 ## Prerequisites
 
-**Required**
-
 | Requirement | Notes |
 |---|---|
 | Docker | Any recent version |
 | `ANTHROPIC_API_KEY` | Claude Sonnet 4.6 by default; Opus 4.7 available via `--model` |
-
-**Optional**
-
-| Requirement | Notes |
-|---|---|
-| MobSF | Self-hosted or via the bundled `docker-compose.yml` sidecar. Adds SAST score, permission analysis, manifest findings, and tracker detection. APKLeaks and JADX still run without it. |
-| `MOBSF_API_KEY` | Found in MobSF → REST API. Required only if MobSF is configured. |
+| MobSF | Self-hosted instance required. Use the bundled `docker-compose.yml` or point `MOBSF_URL` at an existing deployment. Provides SAST score, permission analysis, manifest findings, and tracker detection. |
+| `MOBSF_API_KEY` | Found in MobSF → REST API page. |
 
 ---
 
@@ -196,7 +191,7 @@ options:
 
 **JADX** decompiles the APK to Java source. The filter stage strips all third-party and standard library packages (Android, AndroidX, Kotlin, OkHttp, Firebase, Retrofit, and ~20 other prefixes), leaving only app-package code.
 
-**MobSF** provides static analysis via REST API: upload → scan → report JSON. The summary passed to the analyst covers security score, CVSS, dangerous permissions, manifest findings, HIGH/WARNING SAST results, discovered URLs, and tracker count. Gracefully skipped if `MOBSF_URL` is not set.
+**MobSF** provides static analysis via REST API: upload → scan → report JSON. The summary passed to the analyst covers security score, CVSS, dangerous permissions, manifest findings, HIGH/WARNING SAST results, discovered URLs, and tracker count. A running MobSF instance with `MOBSF_URL` and `MOBSF_API_KEY` set is required.
 
 **Filter** builds a token-efficient `AppContext`: priority-ranked code snippets (credentials uncapped, URLs capped at 20), filtered file tree, parsed AndroidManifest.xml. Use `--max-patterns` to limit total snippets on very large apps.
 
