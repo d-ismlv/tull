@@ -179,16 +179,13 @@ def investigate(ctx: AppContext, workdir: Path, model: str,
         tool_results = []
         for block in resp.content:
             if block.type == "tool_use":
-                arg = str(next(iter(block.input.values()), ""))[:55]
+                arg = str(next(iter(block.input.values()), ""))[:28]
                 if on_action:
                     cached = tokens["cache_read"] // 1000
-                    on_action(
-                        f"round {_round + 1}/{MAX_ROUNDS}  "
-                        f"{block.name}({arg})  "
-                        f"[{tokens['input']//1000}k in · {tokens['output']//1000}k out"
-                        + (f" · {cached}k cached" if cached else "")
-                        + "]"
-                    )
+                    tok = f"{tokens['input']//1000}k·{tokens['output']//1000}k"
+                    if cached:
+                        tok += f"·{cached}k$"
+                    on_action(f"r{_round+1}/{MAX_ROUNDS} {block.name}({arg}) [{tok}]")
                 result = _dispatch(block.name, block.input, jadx_sources, ctx.package_name)
                 tool_results.append({
                     "type": "tool_result",
