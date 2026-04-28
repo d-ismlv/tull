@@ -6,6 +6,7 @@ and be added to run_all(). Failures are isolated — the pipeline continues.
 
 import asyncio
 import json
+import os
 import subprocess
 import sys
 import time
@@ -75,6 +76,7 @@ async def _apkleaks(apk: Path, workdir: Path) -> ToolResult:
         proc = await asyncio.create_subprocess_exec(
             _apkleaks_bin(), "-f", str(apk), "-o", str(out),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, "HOME": "/tmp"},
         )
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
@@ -122,6 +124,7 @@ async def _jadx(apk: Path, output_dir: Path) -> ToolResult:
         proc = await asyncio.create_subprocess_exec(
             "jadx", "-d", str(output_dir), "--show-bad-code", str(apk),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, "HOME": "/tmp"},
         )
         stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=300)
         stdout_text = stdout_bytes.decode(errors="replace")
