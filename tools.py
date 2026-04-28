@@ -126,6 +126,23 @@ async def _jadx(apk: Path, output_dir: Path) -> ToolResult:
         return ToolResult(name="jadx", ok=False, error=str(exc), elapsed=time.monotonic() - t0)
 
 
+def _mobsf_score(report: dict) -> tuple[Any, Any]:
+    score = (report.get("security_score")
+             or report.get("appsec_score")
+             or (report.get("appsec") or {}).get("security_score")
+             or "?")
+    return score, report.get("average_cvss")
+
+
+def _mobsf_result(report: dict, file_hash: str, stages: list, t0: float) -> ToolResult:
+    score, cvss = _mobsf_score(report)
+    return ToolResult(
+        name="mobsf", ok=True, elapsed=time.monotonic() - t0,
+        data={"report": report, "hash": file_hash, "stages": stages,
+              "score": score, "cvss": cvss, "report_keys": list(report.keys())[:20]},
+    )
+
+
 async def _mobsf(apk: Path, url: str, key: str) -> ToolResult:
     url = url.rstrip("/")
     headers = {"Authorization": key}
@@ -133,45 +150,51 @@ async def _mobsf(apk: Path, url: str, key: str) -> ToolResult:
     stages: list[str] = []
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
+            # Upload (fast — MobSF deduplicates by hash internally)
             upload_resp = await client.post(
                 f"{url}/api/v1/upload",
                 headers=headers,
                 files={"file": (apk.name, apk.open("rb"), "application/vnd.android.package-archive")},
             )
             upload_resp.raise_for_status()
-            upload = upload_resp.json()
+            file_hash = upload_resp.json()["hash"]
             stages.append(f"upload {time.monotonic()-t0:.0f}s")
 
-            file_hash = upload["hash"]
+            # Try fetching an existing report before triggering a scan.
+            # If this APK was scanned before, MobSF already has the results.
             t1 = time.monotonic()
+            try:
+                cached = await client.post(
+                    f"{url}/api/v1/report_json", headers=headers,
+                    data={"hash": file_hash},
+                )
+                if cached.status_code == 200:
+                    report = cached.json()
+                    if report.get("app_name") or report.get("package_name"):
+                        stages.append(f"cached {time.monotonic()-t1:.0f}s")
+                        return _mobsf_result(report, file_hash, stages, t0)
+            except Exception:
+                pass
+
+            # Cache miss — run full scan (slow for new APKs)
+            t2 = time.monotonic()
             scan_resp = await client.post(
                 f"{url}/api/v1/scan", headers=headers,
                 data={"hash": file_hash, "scan_type": "apk", "file_name": apk.name},
             )
             scan_resp.raise_for_status()
-            stages.append(f"scan {time.monotonic()-t1:.0f}s")
+            stages.append(f"scan {time.monotonic()-t2:.0f}s")
 
-            t2 = time.monotonic()
+            t3 = time.monotonic()
             report_resp = await client.post(
                 f"{url}/api/v1/report_json", headers=headers,
                 data={"hash": file_hash},
             )
             report_resp.raise_for_status()
-            stages.append(f"report {time.monotonic()-t2:.0f}s")
+            stages.append(f"report {time.monotonic()-t3:.0f}s")
 
-            report = report_resp.json()
-            # Try known field names across MobSF versions
-            score = (report.get("security_score")
-                     or report.get("appsec_score")
-                     or (report.get("appsec") or {}).get("security_score")
-                     or "?")
-            cvss = report.get("average_cvss")  # None is valid (no CVEs found)
-            return ToolResult(
-                name="mobsf", ok=True, elapsed=time.monotonic() - t0,
-                data={"report": report, "hash": file_hash, "stages": stages,
-                      "score": score, "cvss": cvss,
-                      "report_keys": list(report.keys())[:20]},
-            )
+            return _mobsf_result(report_resp.json(), file_hash, stages, t0)
+
     except Exception as exc:
         return ToolResult(name="mobsf", ok=False, error=str(exc),
                           elapsed=time.monotonic() - t0, data={"stages": stages})
