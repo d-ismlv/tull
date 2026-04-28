@@ -1,8 +1,8 @@
 # tull
 
-**Android APK static analysis pipeline with a Claude agentic triage layer — APKLeaks + JADX + MobSF → severity-ranked report.**
+Android APK static analysis pipeline with a Claude agentic triage layer — APKLeaks + JADX + MobSF → severity-ranked report.
 
-→ [example report](example/acme_bank_security_report.md)
+[Example report](example/acme_bank_security_report.md)
 
 ![tull — APK security analysis pipeline](assets/tull.png)
 
