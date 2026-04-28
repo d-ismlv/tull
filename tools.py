@@ -85,7 +85,7 @@ async def _apkleaks(apk: Path, workdir: Path) -> ToolResult:
                               elapsed=time.monotonic() - t0)
 
         raw = out.read_text(errors="replace") if out.exists() else stdout.decode(errors="replace")
-        stderr_tail = stderr.decode(errors="replace")[-500:] if stderr else ""
+        stderr_out = stderr.decode(errors="replace") if stderr else ""
 
         # Try JSON first (future versions), fall back to native text parser
         try:
@@ -95,7 +95,12 @@ async def _apkleaks(apk: Path, workdir: Path) -> ToolResult:
 
         category_count = len(findings)
         finding_count = sum(len(v) for v in findings.values() if isinstance(v, list))
-        error = stderr_tail if not findings else ""
+        if not findings:
+            # Show whatever the process actually printed so the failure is diagnosable
+            diag = (stderr_out or raw or "no output").strip()
+            error = diag[:300]
+        else:
+            error = ""
         return ToolResult(
             name="apkleaks", ok=bool(findings), elapsed=time.monotonic() - t0,
             error=error,
@@ -118,12 +123,18 @@ async def _jadx(apk: Path, output_dir: Path) -> ToolResult:
             "jadx", "-d", str(output_dir), "--show-bad-code", str(apk),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-        stderr_text = stderr.decode(errors="replace")
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=300)
+        stdout_text = stdout_bytes.decode(errors="replace")
+        stderr_text = stderr_bytes.decode(errors="replace")
         java_count = sum(1 for _ in output_dir.rglob("*.java"))
+        if java_count == 0:
+            diag = (stderr_text or stdout_text or "no output").strip()
+            error = diag[:300]
+        else:
+            error = ""
         return ToolResult(
             name="jadx", ok=java_count > 0, elapsed=time.monotonic() - t0,
-            error=stderr_text[-500:] if java_count == 0 else "",
+            error=error,
             data={"output_dir": str(output_dir), "java_files": java_count,
                   "stderr_tail": stderr_text[-1000:]},
         )
