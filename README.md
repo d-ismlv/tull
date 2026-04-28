@@ -6,6 +6,10 @@ A pipeline that connects three specialist tools through an AI synthesis layer: f
 
 ---
 
+![tull — APK security analysis pipeline](assets/tull.png)
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -49,8 +53,8 @@ flowchart LR
 |---|---|
 | Docker | Any recent version |
 | `ANTHROPIC_API_KEY` | Claude Sonnet 4.6 by default; Opus 4.7 available via `--model` |
-| MobSF | Self-hosted instance required. |
-| `MOBSF_API_KEY` | Found in MobSF → REST API page. |
+| MobSF | Self-hosted instance required |
+| `MOBSF_API_KEY` | Found in MobSF → REST API page |
 
 ---
 
@@ -118,7 +122,6 @@ All files are written to the output directory (default: `output/`):
 ```
 output/
   target_security_report.md   ← final report
-  target_analysis.md          ← raw AI output (pre-render)
   target_apkleaks.txt         ← verbatim APKLeaks output
   target_apkleaks.json        ← APKLeaks findings as JSON
   target_mobsf_report.json    ← full MobSF report JSON
@@ -127,9 +130,9 @@ output/
 A summary is printed at the end of every run:
 
 ```
-[+] 5 files saved to output/
+[+] 4 files saved to output/
        target_security_report.md                         18 KB
-       target_analysis.md                                12 KB
+       target_apkleaks.txt                               14 KB
        ...
 
     tokens  42,310 in · 3,891 out  (claude-sonnet-4-6)

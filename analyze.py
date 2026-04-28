@@ -146,10 +146,6 @@ async def main():
             f"({args.model})"
         ))
 
-        # Save raw analysis before rendering (crash recovery)
-        analysis_path = output_dir / f"{stem}_analysis.md"
-        analysis_path.write_text(analysis_md, encoding="utf-8")
-
         # ── 4. Render final report ────────────────────────────────────────
         from report import render
         report = render(apk.name, ctx.metadata, analysis_md, tool_results)
