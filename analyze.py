@@ -5,6 +5,7 @@ import asyncio
 import argparse
 import json
 import os
+import shutil
 import sys
 import time
 import tempfile
@@ -152,6 +153,16 @@ async def main():
 
         report_path = output_dir / f"{stem}_security_report.md"
         report_path.write_text(report, encoding="utf-8")
+
+        # ── 5. Persist decompiled sources (copy before temp dir is deleted)
+        jadx_sources = workdir / "jadx" / "sources"
+        if jadx_sources.exists():
+            dest = output_dir / f"{stem}_sources"
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.copytree(jadx_sources, dest)
+            n = sum(1 for _ in dest.rglob("*.java"))
+            _log("done", f"jadx sources → {dest.name}/  ({n:,} files)")
 
     _print_saved_summary(output_dir, stem, token_stats, args.model)
 
