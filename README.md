@@ -2,7 +2,7 @@
 
 APK security tools produce useful but noisy output — tracing pattern matches to actually exploitable code still requires reading decompiled source. tull runs APKLeaks, JADX, and MobSF in parallel, then drives a Claude agent to read decompiled Java, confirm or dismiss findings, and write a severity-ranked report. It does not replace a skilled mobile security engineer, but it closes the gap between raw scanner output and a first actionable assessment.
 
-A pipeline that connects three specialist tools through an AI synthesis layer: findings go in, a structured report with code evidence comes out. → [example report](example/acme_bank_security_report.md)
+A pipeline that connects three specialist tools through an AI synthesis layer: findings go in, a structured report with code evidence comes out → [example report](example/acme_bank_security_report.md)
 
 ![tull — APK security analysis pipeline](assets/tull.png)
 
