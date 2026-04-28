@@ -49,7 +49,7 @@ flowchart LR
 |---|---|
 | Docker | Any recent version |
 | `ANTHROPIC_API_KEY` | Claude Sonnet 4.6 by default; Opus 4.7 available via `--model` |
-| MobSF | Self-hosted instance required. Use the bundled `docker-compose.yml` or point `MOBSF_URL` at an existing deployment. Provides SAST score, permission analysis, manifest findings, and tracker detection. |
+| MobSF | Self-hosted instance required. |
 | `MOBSF_API_KEY` | Found in MobSF → REST API page. |
 
 ---
