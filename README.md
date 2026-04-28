@@ -50,66 +50,76 @@ flowchart LR
 | Requirement | Notes |
 |---|---|
 | Docker | Any recent version |
-| `ANTHROPIC_API_KEY` | Claude Sonnet 4.6 by default; Opus 4.7 available via `--model` |
-| MobSF | Self-hosted instance required |
-| `MOBSF_API_KEY` | Found in MobSF → REST API page |
+| `ANTHROPIC_API_KEY` | Set in `.env` or passed via `-e` |
+| MobSF | Must be running before tull is invoked — see setup below |
+| `MOBSF_URL` | Base URL of your MobSF instance, e.g. `http://10.1.1.3:28082` |
+| `MOBSF_API_KEY` | Found in MobSF → Settings → REST API |
 
 ---
 
 ## Setup
 
-**With Docker Compose (MobSF included)**
+tull needs a running MobSF instance to connect to. Start one first, then point tull at it.
+
+**Option A — bundled MobSF sidecar (docker compose)**
+
+The repo includes a `docker-compose.yml` that runs MobSF as a sidecar. Start it once and leave it running:
 
 ```bash
 cp .env.example .env
-# fill ANTHROPIC_API_KEY and MOBSF_API_KEY
+# fill in ANTHROPIC_API_KEY and MOBSF_API_KEY
 
-docker compose up mobsf          # wait for healthy (≈60 s on first boot)
+docker compose up mobsf          # first boot takes ~60 s; wait for "healthy"
 ```
 
-**Standalone container**
+Then run tull against it (MobSF is reachable at `http://mobsf:8000` inside the compose network):
+
+```bash
+mkdir -p input output
+cp target.apk input/
+docker compose run --no-deps analyzer /data/input/target.apk -o /data/output
+```
+
+**Option B — existing MobSF instance**
+
+If you already have MobSF running somewhere (self-hosted, another machine, etc.), just point tull at it:
 
 ```bash
 docker build -t tull .
+
+docker run --rm \
+  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+  -e MOBSF_URL=http://<host>:<port> \
+  -e MOBSF_API_KEY=$MOBSF_API_KEY \
+  -v ./input:/data/input:ro \
+  -v ./output:/data/output \
+  tull /data/input/target.apk -o /data/output
 ```
 
-**Without Docker (Python 3.12+)**
+**Option C — Python directly (no Docker)**
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt   # apkleaks included
 # also requires: jadx on PATH
-```
 
-APKLeaks is installed automatically via `requirements.txt`.
+MOBSF_URL=http://... MOBSF_API_KEY=... python analyze.py target.apk -o ./output
+```
 
 ---
 
 ## Usage
 
 ```bash
-# Docker Compose (MobSF sidecar)
-mkdir -p input output
-cp target.apk input/
-docker compose run analyzer /data/input/target.apk -o /data/output
-
-# Standalone container
-docker run --rm \
-  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
-  -e MOBSF_URL=http://mobsf:8000 \
-  -e MOBSF_API_KEY=$MOBSF_API_KEY \
-  -v ./input:/data/input:ro \
-  -v ./output:/data/output \
-  tull /data/input/target.apk -o /data/output
-
-# Use Opus for deeper analysis
+# Use Opus 4.7 for deeper analysis
 docker run ... tull target.apk --model claude-opus-4-7
 
-# Cap patterns fed to AI (useful for very large apps)
-python analyze.py target.apk --max-patterns 150
-
-# Python directly
-python analyze.py target.apk -o ./output
+# Cap patterns fed to AI — useful for very large apps, speeds up step 3
+docker run ... tull target.apk --max-patterns 150
 ```
+
+> **Performance note** — decompilation is the slowest step. A 70 MB APK takes roughly
+> 5 minutes on an Apple M1 Pro; expect longer on modest server hardware.
+> MobSF scan results are cached by file hash, so repeat runs of the same APK are nearly instant.
 
 ---
 

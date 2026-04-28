@@ -32,6 +32,10 @@ env/
 dist/
 build/
 
+# Archives
+*.zip
+*.tar.gz
+
 # macOS
 .DS_Store
 .AppleDouble
